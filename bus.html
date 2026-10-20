@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>서울 버스 도착 정보 (Seoul Bus Arrival)</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            seoulBlue: '#0054A6',  // 간선버스
+            seoulGreen: '#37B44A', // 지선버스
+            seoulRed: '#E61C24',   // 광역버스
+            seoulYellow: '#F39800',// 순환버스
+            seoulNight: '#1E293B', // 심야버스
+            seoulTown: '#5BB75B',  // 마을버스
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+    }
+    .pulse-arrival {
+      animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulse-ring {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- 헤더 영역 -->
+  <header class="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-4xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-9 h-9 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-white shadow-inner">
+          <i class="fa-solid fa-bus text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight">서울 버스 도착 정보</h1>
+          <p class="text-xs text-blue-100/80 hidden sm:block">공공데이터포털 getStationByUidItem 연동</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button id="btnToggleSettings" class="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors" title="API 설정 열기">
+          <i class="fa-solid fa-gear text-sm sm:text-base"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 컨테이너 -->
+  <main class="max-w-4xl w-full mx-auto px-4 py-5 flex-grow space-y-4">
+
+    <!-- API 설정 패널 (접이식/Modal 형태) -->
+    <section id="settingsPanel" class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 hidden transition-all duration-300">
+      <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+        <h2 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+          <i class="fa-solid fa-key text-blue-600"></i> 공공데이터포털 API 설정
+        </h2>
+        <button id="btnCloseSettings" class="text-slate-400 hover:text-slate-600">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      
+      <div class="space-y-3 text-sm">
+        <div>
+          <label for="apiKeyInput" class="block font-medium text-slate-700 mb-1">
+            일반 인증키 (Decoding 또는 Encoding 키)
+          </label>
+          <div class="relative">
+            <input type="password" id="apiKeyInput" placeholder="data.go.kr에서 발급받은 서비스키를 입력하세요" 
+                   class="w-full pl-3 pr-20 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs">
+            <button id="btnToggleKeyVisibility" type="button" class="absolute right-3 top-2.5 text-xs text-slate-500 hover:text-slate-700">
+              보기
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 mt-1">※ 키는 브라우저의 localStorage에만 안전하게 보관됩니다.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="useCorsProxy" checked class="w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
+            <label for="useCorsProxy" class="text-xs text-slate-600 cursor-pointer">
+              CORS 우회 프록시 사용 (GitHub Pages 필수)
+            </label>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="demoModeToggle" class="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500">
+            <label for="demoModeToggle" class="text-xs text-slate-600 cursor-pointer font-medium text-emerald-700">
+              체험용 데모 데이터(Mock) 모드 사용
+            </label>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="btnSaveSettings" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition">
+            설정 저장
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 검색 바 및 단축 정류장 영역 -->
+    <section class="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200">
+      <form id="searchForm" class="space-y-3" onsubmit="return false;">
+        <label for="arsIdInput" class="block text-sm font-semibold text-slate-700">
+          정류소 고유번호 (5자리 ARS-ID)
+        </label>
+        <div class="flex gap-2">
+          <div class="relative flex-grow">
+            <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <i class="fa-solid fa-map-pin"></i>
+            </span>
+            <input type="text" id="arsIdInput" inputmode="numeric" maxlength="5" pattern="[0-9]*" 
+                   placeholder="예: 04247, 02007, 03138" 
+                   class="w-full pl-10 pr-3 py-3 text-base sm:text-lg font-semibold tracking-wider text-slate-800 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <button type="submit" id="btnSearch" class="px-5 sm:px-6 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold rounded-xl flex items-center gap-2 shadow-sm transition shrink-0">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <span class="hidden sm:inline">조회</span>
+          </button>
+        </div>
+
+        <!-- 빠른 선택 예제 칩 -->
+        <div class="pt-1 flex items-center flex-wrap gap-1.5 text-xs">
+          <span class="text-slate-400 mr-1"><i class="fa-regular fa-lightbulb"></i> 예시:</span>
+          <button type="button" class="quick-chip px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-slate-600 transition" data-arsid="04247">
+            04247 (행당동/한양여대)
+          </button>
+          <button type="button" class="quick-chip px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-slate-600 transition" data-arsid="02007">
+            02007 (서울역버스환승센터)
+          </button>
+          <button type="button" class="quick-chip px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-slate-600 transition" data-arsid="03138">
+            03138 (이촌역)
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 실시간 상태 바 및 필터 컨트롤 -->
+    <section id="controlBar" class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200 hidden">
+      <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
+        
+        <!-- 정류장 기본 정보 표시 -->
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 font-bold text-xs">
+            ARS
+          </div>
+          <div class="truncate">
+            <div class="flex items-center gap-2">
+              <span id="currentStationName" class="font-bold text-slate-800 text-base truncate">정류소 이름</span>
+              <span id="currentStationId" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono font-medium">00000</span>
+            </div>
+            <p id="currentStationDirection" class="text-xs text-slate-500 truncate">방면 정보</p>
+          </div>
+        </div>
+
+        <!-- 갱신 및 필터 컨트롤 -->
+        <div class="flex items-center gap-2 justify-end shrink-0">
+          <div class="relative w-36 sm:w-40">
+            <input type="text" id="routeFilterInput" placeholder="노선번호 필터" class="w-full text-xs py-1.5 pl-2.5 pr-6 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500">
+            <button id="btnClearFilter" class="absolute right-2 top-1.5 text-xs text-slate-400 hover:text-slate-600 hidden">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <!-- 새로고침 버튼 & 타이머 -->
+          <button id="btnRefresh" class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition">
+            <i id="refreshIcon" class="fa-solid fa-arrows-rotate"></i>
+            <span id="refreshTimerText">새로고침</span>
+          </button>
+          
+          <button id="btnToggleAutoRefresh" class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition" title="15초 자동 갱신 토글">
+            <i class="fa-regular fa-clock"></i> <span id="autoRefreshStatus">자동 OFF</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 로딩 스켈레톤 상태 -->
+    <div id="loadingState" class="hidden space-y-3 py-6">
+      <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 animate-pulse space-y-3">
+        <div class="h-4 bg-slate-200 rounded w-1/4"></div>
+        <div class="h-6 bg-slate-200 rounded w-1/2"></div>
+        <div class="h-4 bg-slate-200 rounded w-3/4"></div>
+      </div>
+      <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 animate-pulse space-y-3">
+        <div class="h-4 bg-slate-200 rounded w-1/4"></div>
+        <div class="h-6 bg-slate-200 rounded w-1/2"></div>
+        <div class="h-4 bg-slate-200 rounded w-3/4"></div>
+      </div>
+    </div>
+
+    <!-- 에러 / 안내 메시지 박스 -->
+    <div id="messageBox" class="hidden p-4 rounded-2xl border text-sm flex items-start gap-3">
+      <i id="msgIcon" class="fa-solid fa-circle-exclamation text-base mt-0.5 shrink-0"></i>
+      <div class="flex-grow">
+        <h4 id="msgTitle" class="font-bold">알림</h4>
+        <p id="msgDesc" class="text-xs mt-0.5 leading-relaxed"></p>
+        <div id="msgAction" class="mt-2 hidden"></div>
+      </div>
+    </div>
+
+    <!-- 실시간 도착 버스 리스트 컨테이너 -->
+    <section id="arrivalList" class="space-y-2.5">
+      <!-- 초기 시작 안내 화면 -->
+      <div id="emptyInitialState" class="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm text-slate-500">
+        <div class="w-16 h-16 mx-auto bg-blue-50 text-blue-500 rounded-full flex items-center justify-center text-2xl mb-3">
+          <i class="fa-solid fa-signs-post"></i>
+        </div>
+        <h3 class="font-bold text-slate-700 text-base">조회할 정류소 번호를 입력하세요</h3>
+        <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+          버스 정류소 표지판에 적힌 5자리 고유번호(ARS-ID)를 입력하면 실시간 버스 도착 시간을 조회합니다.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 하단 푸터 -->
+  <footer class="bg-white border-t border-slate-200 py-4 mt-8 text-center text-xs text-slate-500">
+    <div class="max-w-4xl mx-auto px-4 space-y-1">
+      <p>데이터 제공: 서울특별시 (공공데이터포털 getStationByUidItem)</p>
+      <p class="text-slate-400">Vanilla JS Single Page WebApp • GitHub Pages 배포 지원</p>
+    </div>
+  </footer>
+
+  <!-- 알림 토스트 (Copy or Notice) -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 text-white px-4 py-2.5 rounded-full text-xs font-medium shadow-lg backdrop-blur pointer-events-none transition-all duration-300 opacity-0 transform translate-y-2 z-50">
+    알림 메시지
+  </div>
+
+  <script>
+    /* =========================================================================
+     * 상수 및 상태 관리
+     * ========================================================================= */
+    const STORAGE_KEY_API = 'seoul_bus_api_key';
+    const STORAGE_KEY_LAST_ARS = 'seoul_bus_last_ars';
+    const STORAGE_KEY_USE_PROXY = 'seoul_bus_use_proxy';
+    const STORAGE_KEY_DEMO_MODE = 'seoul_bus_demo_mode';
+
+    const CORS_PROXY_URL = 'https://corsproxy.io/?'; 
+    const API_ENDPOINT = 'http://ws.bus.go.kr/api/rest/stationinfo/getStationByUid';
+
+    let appState = {
+      apiKey: localStorage.getItem(STORAGE_KEY_API) || '',
+      lastArsId: localStorage.getItem(STORAGE_KEY_LAST_ARS) || '',
+      useProxy: localStorage.getItem(STORAGE_KEY_USE_PROXY) !== 'false', // default true for github pages
+      demoMode: localStorage.getItem(STORAGE_KEY_DEMO_MODE) === 'true',
+      busData: [],
+      filterKeyword: '',
+      autoRefreshInterval: null,
+      countdownTimer: null,
+      countdownSeconds: 15,
+      isAutoRefreshing: false,
+      currentStationName: '',
+      currentArsId: ''
+    };
+
+    // 버스 유형 매핑 (routeType 코드 -> 명칭 및 색상)
+    // 1:공항, 2:마을, 3:간선, 4:지선, 5:순환, 6:광역, 7:인천, 8:경기, 9:폐지, 0:공용
+    const ROUTE_TYPES = {
+      '1': { name: '공항', bg: 'bg-indigo-600', text: 'text-white', badge: 'bg-indigo-100 text-indigo-700' },
+      '2': { name: '마을', bg: 'bg-emerald-600', text: 'text-white', badge: 'bg-emerald-100 text-emerald-800' },
+      '3': { name: '간선', bg: 'bg-blue-600', text: 'text-white', badge: 'bg-blue-100 text-blue-800' },
+      '4': { name: '지선', bg: 'bg-green-600', text: 'text-white', badge: 'bg-green-100 text-green-800' },
+      '5': { name: '순환', bg: 'bg-amber-500', text: 'text-white', badge: 'bg-amber-100 text-amber-800' },
+      '6': { name: '광역', bg: 'bg-rose-600', text: 'text-white', badge: 'bg-rose-100 text-rose-800' },
+      '7': { name: '인천', bg: 'bg-cyan-600', text: 'text-white', badge: 'bg-cyan-100 text-cyan-800' },
+      '8': { name: '경기', bg: 'bg-teal-600', text: 'text-white', badge: 'bg-teal-100 text-teal-800' },
+      'default': { name: '일반', bg: 'bg-slate-600', text: 'text-white', badge: 'bg-slate-100 text-slate-800' }
+    };
+
+    /* =========================================================================
+     * UI 엘리먼트 참조
+     * ========================================================================= */
+    const searchForm = document.getElementById('searchForm');
+    const arsIdInput = document.getElementById('arsIdInput');
+    const btnSearch = document.getElementById('btnSearch');
+    const arrivalList = document.getElementById('arrivalList');
+    const loadingState = document.getElementById('loadingState');
+    const messageBox = document.getElementById('messageBox');
+    const msgIcon = document.getElementById('msgIcon');
+    const msgTitle = document.getElementById('msgTitle');
+    const msgDesc = document.getElementById('msgDesc');
+    const msgAction = document.getElementById('msgAction');
+    const controlBar = document.getElementById('controlBar');
+    const currentStationNameEl = document.getElementById('currentStationName');
+    const currentStationIdEl = document.getElementById('currentStationId');
+    const currentStationDirectionEl = document.getElementById('currentStationDirection');
+    const btnRefresh = document.getElementById('btnRefresh');
+    const refreshIcon = document.getElementById('refreshIcon');
+    const refreshTimerText = document.getElementById('refreshTimerText');
+    const btnToggleAutoRefresh = document.getElementById('btnToggleAutoRefresh');
+    const autoRefreshStatus = document.getElementById('autoRefreshStatus');
+    const routeFilterInput = document.getElementById('routeFilterInput');
+    const btnClearFilter = document.getElementById('btnClearFilter');
+    const emptyInitialState = document.getElementById('emptyInitialState');
+    
+    // 설정 패널 엘리먼트
+    const settingsPanel = document.getElementById('settingsPanel');
+    const btnToggleSettings = document.getElementById('btnToggleSettings');
+    const btnCloseSettings = document.getElementById('btnCloseSettings');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const btnToggleKeyVisibility = document.getElementById('btnToggleKeyVisibility');
+    const useCorsProxyCheck = document.getElementById('useCorsProxy');
+    const demoModeToggle = document.getElementById('demoModeToggle');
+    const btnSaveSettings = document.getElementById('btnSaveSettings');
+    const toast = document.getElementById('toast');
+
+    /* =========================================================================
+     * 유틸리티 함수
+     * ========================================================================= */
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.remove('opacity-0', 'translate-y-2');
+      toast.classList.add('opacity-100', 'translate-y-0');
+      setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', 'translate-y-2');
+      }, 2500);
+    }
+
+    function showMessage(type, title, desc, actionHtml = '') {
+      messageBox.className = 'p-4 rounded-2xl border text-sm flex items-start gap-3 ';
+      if (type === 'error') {
+        messageBox.classList.add('bg-rose-50', 'border-rose-200', 'text-rose-800');
+        msgIcon.className = 'fa-solid fa-circle-exclamation text-base mt-0.5 text-rose-500 shrink-0';
+      } else if (type === 'info') {
+        messageBox.classList.add('bg-blue-50', 'border-blue-200', 'text-blue-800');
+        msgIcon.className = 'fa-solid fa-circle-info text-base mt-0.5 text-blue-500 shrink-0';
+      } else {
+        messageBox.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-800');
+        msgIcon.className = 'fa-solid fa-triangle-exclamation text-base mt-0.5 text-amber-500 shrink-0';
+      }
+      msgTitle.textContent = title;
+      msgDesc.innerHTML = desc;
+      if (actionHtml) {
+        msgAction.innerHTML = actionHtml;
+        msgAction.classList.remove('hidden');
+      } else {
+        msgAction.classList.add('hidden');
+      }
+      messageBox.classList.remove('hidden');
+    }
+
+    function hideMessage() {
+      messageBox.classList.add('hidden');
+    }
+
+    // 도착 메시지 하이라이트 분석 (곧 도착, 분 전 등)
+    function parseArrivalText(msg) {
+      if (!msg) return { text: '도착 정보 없음', isImminent: false, isEnd: true };
+      
+      const cleanMsg = msg.trim();
+      const isImminent = cleanMsg.includes('곧 도착') || cleanMsg.includes('1분') || cleanMsg.includes('2분');
+      const isEnd = cleanMsg.includes('운행종료') || cleanMsg.includes('출발대기');
+
+      return {
+        text: cleanMsg,
+        isImminent,
+        isEnd
+      };
+    }
+
+    /* =========================================================================
+     * 목업(데모) 데이터 생성기
+     * ========================================================================= */
+    function getMockData(arsId) {
+      return [
+        {
+          rtNm: '4211',
+          routeType: '4', // 지선
+          adirection: '한남동방면',
+          stNm: '한양여대앞',
+          arsId: arsId || '04247',
+          arrmsg1: '곧 도착 (1번째 전)',
+          arrmsg2: '7분32초후[4번째 전]',
+          rerTourDiv: '0',
+          vehId1: '103001',
+          rerflag: '0'
+        },
+        {
+          rtNm: '2016',
+          routeType: '4', // 지선
+          adirection: '신답역방면',
+          stNm: '한양여대앞',
+          arsId: arsId || '04247',
+          arrmsg1: '3분20초후[2번째 전]',
+          arrmsg2: '14분10초후[8번째 전]',
+          rerTourDiv: '0',
+          vehId1: '103002',
+          rerflag: '0'
+        },
+        {
+          rtNm: '463',
+          routeType: '3', // 간선
+          adirection: '왕십리역방면',
+          stNm: '한양여대앞',
+          arsId: arsId || '04247',
+          arrmsg1: '5분15초후[3번째 전]',
+          arrmsg2: '12분05초후[7번째 전]',
+          rerTourDiv: '0',
+          vehId1: '103003',
+          rerflag: '0'
+        },
+        {
+          rtNm: '9401',
+          routeType: '6', // 광역
+          adirection: '서울역방면',
+          stNm: '한양여대앞',
+          arsId: arsId || '04247',
+          arrmsg1: '9분45초후[5번째 전]',
+          arrmsg2: '운행종료',
+          rerTourDiv: '0',
+          vehId1: '103004',
+          rerflag: '0'
+        },
+        {
+          rtNm: '성동03',
+          routeType: '2', // 마을
+          adirection: '마장역방면',
+          stNm: '한양여대앞',
+          arsId: arsId || '04247',
+          arrmsg1: '곧 도착',
+          arrmsg2: '8분후',
+          rerTourDiv: '0',
+          vehId1: '103005',
+          rerflag: '0'
+        }
+      ];
+    }
+
+    /* =========================================================================
+     * API 통신 및 파싱 로직
+     * ========================================================================= */
+    async function fetchBusArrivals(arsId) {
+      if (appState.demoMode) {
+        // 데모 모드일 때는 즉시 가상 데이터 반환 (0.4초 딜레이)
+        await new Promise(res => setTimeout(res, 400));
+        return {
+          stationName: '한양여대앞 (모의 데이터)',
+          direction: '왕십리/한남 방면',
+          items: getMockData(arsId)
+        };
+      }
+
+      if (!appState.apiKey || appState.apiKey.trim() === '') {
+        throw new Error('API_KEY_REQUIRED');
+      }
+
+      // 공공데이터포털 URL 조립
+      // 인증키에 이미 인코딩(% 등)이 포함되어 있을 수 있으므로 처리
+      const key = appState.apiKey.trim();
+      const encodedKey = key.includes('%') ? key : encodeURIComponent(key);
+
+      const targetUrl = `${API_ENDPOINT}?serviceKey=${encodedKey}&arsId=${encodeURIComponent(arsId)}`;
+      
+      // GitHub Pages(HTTPS)에서 HTTP 공공데이터 호출 시 Mixed Content 에러 방지 및 CORS 우회
+      let fetchUrl = targetUrl;
+      if (appState.useProxy) {
+        fetchUrl = `${CORS_PROXY_URL}${encodeURIComponent(targetUrl)}`;
+      }
+
+      const response = await fetch(fetchUrl, {
+        headers: {
+          'Accept': 'application/xml, text/xml, */*'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP_${response.status}`);
+      }
+
+      const rawText = await response.text();
+      return parseApiResponse(rawText);
+    }
+
+    // XML 또는 JSON 응답 파서
+    function parseApiResponse(rawText) {
+      // 1. JSON 체크
+      if (rawText.trim().startsWith('{')) {
+        try {
+          const json = JSON.parse(rawText);
+          const msgBody = json.msgBody || json.response?.body;
+          const items = msgBody?.itemList || [];
+          if (!items || items.length === 0) {
+            return { stationName: '', direction: '', items: [] };
+          }
+          const first = items[0] || {};
+          return {
+            stationName: first.stNm || '정류소',
+            direction: first.adirection ? `${first.adirection} 방면` : '',
+            items: items
+          };
+        } catch (e) {
+          // JSON 파싱 실패 시 XML 파서로 폴백
+        }
+      }
+
+      // 2. XML 파싱 (DOMParser)
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(rawText, 'text/xml');
+
+      // OpenAPI 에러 태그 체크
+      const headerCd = xmlDoc.querySelector('headerCd')?.textContent || '';
+      const headerMsg = xmlDoc.querySelector('headerMsg')?.textContent || '';
+
+      // headerCd 0: 정상, 그 외는 오류
+      if (headerCd !== '' && headerCd !== '0') {
+        const err = new Error(headerMsg || 'API 응답 오류');
+        err.code = headerCd;
+        throw err;
+      }
+
+      const itemNodes = xmlDoc.querySelectorAll('itemList');
+      if (!itemNodes || itemNodes.length === 0) {
+        return { stationName: '', direction: '', items: [] };
+      }
+
+      const items = [];
+      itemNodes.forEach(node => {
+        const getVal = (tag) => node.querySelector(tag)?.textContent || '';
+        items.push({
+          rtNm: getVal('rtNm'),
+          routeType: getVal('routeType'),
+          adirection: getVal('adirection'),
+          stNm: getVal('stNm'),
+          arsId: getVal('arsId'),
+          arrmsg1: getVal('arrmsg1'),
+          arrmsg2: getVal('arrmsg2'),
+          busRouteId: getVal('busRouteId'),
+          rerTourDiv: getVal('rerTourDiv'),
+          vehId1: getVal('vehId1'),
+          stationNm1: getVal('stationNm1')
+        });
+      });
+
+      const firstItem = items[0] || {};
+      return {
+        stationName: firstItem.stNm || '정류소',
+        direction: firstItem.adirection ? `${firstItem.adirection} 방면` : '',
+        items: items
+      };
+    }
+
+    /* =========================================================================
+     * 렌더링 로직
+     * ========================================================================= */
+    function renderArrivalCards(items) {
+      if (emptyInitialState) {
+        emptyInitialState.remove();
+      }
+
+      // 필터 적용
+      const keyword = appState.filterKeyword.trim().toLowerCase();
+      const filtered = keyword 
+        ? items.filter(it => it.rtNm.toLowerCase().includes(keyword))
+        : items;
+
+      if (filtered.length === 0) {
+        arrivalList.innerHTML = `
+          <div class="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm text-slate-500">
+            <i class="fa-solid fa-ban text-2xl text-slate-400 mb-2"></i>
+            <p class="font-medium text-sm text-slate-700">일치하는 노선이 없습니다.</p>
+            <p class="text-xs text-slate-400 mt-1">필터 검색어를 다시 확인해보세요.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // 정렬: 곧 도착하는 버스가 우선 보이도록 정렬
+      const sorted = [...filtered].sort((a, b) => {
+        const aImm = a.arrmsg1.includes('곧') || a.arrmsg1.includes('1분') ? 1 : 0;
+        const bImm = b.arrmsg1.includes('곧') || b.arrmsg1.includes('1분') ? 1 : 0;
+        return bImm - aImm;
+      });
+
+      let html = '';
+      sorted.forEach(bus => {
+        const typeInfo = ROUTE_TYPES[bus.routeType] || ROUTE_TYPES['default'];
+        const arr1 = parseArrivalText(bus.arrmsg1);
+        const arr2 = parseArrivalText(bus.arrmsg2);
+
+        html += `
+          <div class="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-4.5 border border-slate-200/90 shadow-sm hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between gap-3 mb-2.5">
+              <!-- 노선 번호 및 유형 태그 -->
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center font-bold px-2.5 py-1 text-xs rounded-lg ${typeInfo.badge}">
+                  ${typeInfo.name}
+                </span>
+                <span class="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
+                  ${bus.rtNm}
+                </span>
+              </div>
+              <!-- 방면 표시 -->
+              <div class="text-xs text-slate-500 text-right truncate">
+                <span class="font-medium text-slate-700">${bus.adirection || '종점'}</span> 방면
+              </div>
+            </div>
+
+            <!-- 도착 정보 섹션 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+              <!-- 첫 번째 도착 버스 -->
+              <div class="flex items-center justify-between p-2.5 rounded-xl ${arr1.isImminent ? 'bg-amber-50/80 border border-amber-200/70' : 'bg-slate-50'}">
+                <div class="flex items-center gap-2">
+                  <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${arr1.isImminent ? 'bg-amber-500 text-white pulse-arrival' : 'bg-slate-300 text-slate-700'}">
+                    1
+                  </span>
+                  <span class="text-xs font-semibold ${arr1.isImminent ? 'text-amber-900' : 'text-slate-700'}">
+                    ${arr1.text}
+                  </span>
+                </div>
+                ${arr1.isImminent ? '<span class="text-[11px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">곧 도착</span>' : ''}
+              </div>
+
+              <!-- 두 번째 도착 버스 -->
+              <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50">
+                <div class="flex items-center gap-2">
+                  <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-slate-200 text-slate-600">
+                    2
+                  </span>
+                  <span class="text-xs font-medium text-slate-600">
+                    ${arr2.text}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      arrivalList.innerHTML = html;
+    }
+
+    /* =========================================================================
+     * 컨트롤러 및 비즈니스 로직
+     * ========================================================================= */
+    async function executeSearch(arsId) {
+      if (!arsId || arsId.trim().length === 0) {
+        showMessage('warn', '정류소 번호를 입력하세요', '버스 정류장 표지판에 표시된 5자리 고유번호(ARS-ID)를 입력해주세요.');
+        return;
+      }
+
+      const cleanArsId = arsId.trim().padStart(5, '0'); // 예: 4247 -> 04247 패딩 지원
+      appState.lastArsId = cleanArsId;
+      localStorage.setItem(STORAGE_KEY_LAST_ARS, cleanArsId);
+      arsIdInput.value = cleanArsId;
+
+      hideMessage();
+      loadingState.classList.remove('hidden');
+      arrivalList.classList.add('opacity-40');
+      btnSearch.disabled = true;
+
+      try {
+        const result = await fetchBusArrivals(cleanArsId);
+
+        if (!result.items || result.items.length === 0) {
+          controlBar.classList.add('hidden');
+          arrivalList.innerHTML = '';
+          showMessage('info', '도착 예정 버스가 없습니다', `정류소 [${cleanArsId}]에 현재 운행 중이거나 예정된 도착 정보가 존재하지 않습니다.<br><span class="text-xs text-slate-500">※ 정류소 번호가 올바른지, 첫차/막차 시간이 아닌지 확인해보세요.</span>`);
+          return;
+        }
+
+        appState.busData = result.items;
+        appState.currentStationName = result.stationName;
+        appState.currentArsId = cleanArsId;
+
+        // 상단 바 정보 갱신
+        currentStationNameEl.textContent = result.stationName || '정류소';
+        currentStationIdEl.textContent = cleanArsId;
+        currentStationDirectionEl.textContent = result.direction ? `${result.direction} (실시간 조회됨)` : '실시간 정보';
+        controlBar.classList.remove('hidden');
+
+        renderArrivalCards(appState.busData);
+        showToast('도착 정보가 업데이트되었습니다.');
+
+      } catch (err) {
+        console.error('Bus API Error:', err);
+        controlBar.classList.add('hidden');
+        arrivalList.innerHTML = '';
+
+        if (err.message === 'API_KEY_REQUIRED') {
+          showMessage('error', 'API 서비스 키가 필요합니다', 
+            `공공데이터포털(data.go.kr)의 <b>서울특별시_정류소정보조회</b> 일반 인증키를 등록해야 조회할 수 있습니다.<br>
+            키가 아직 없다면 우측 상단 설정 아이콘을 눌러 <b>[데모 모드]</b>를 활성화하여 바로 테스트해보실 수 있습니다.`,
+            `<button onclick="openSettingsWithFocus()" class="mt-2 text-xs font-semibold text-blue-600 underline">API 설정 열기</button>`
+          );
+        } else if (err.message.includes('HTTP_') || err.name === 'TypeError') {
+          showMessage('error', '네트워크 또는 CORS 오류가 발생했습니다', 
+            `브라우저의 보안 정책(CORS) 또는 HTTPS 통신 제한으로 인해 공공데이터 서버에 직접 연결되지 못했습니다.<br>
+            설정창에서 <b>'CORS 우회 프록시 사용'</b>이 켜져 있는지 확인하시거나, 키가 올바른지 확인해주세요.`
+          );
+        } else {
+          showMessage('error', '데이터를 불러오지 못했습니다', `에러 내용: ${err.message || '알 수 없는 오류'}`);
+        }
+      } finally {
+        loadingState.classList.add('hidden');
+        arrivalList.classList.remove('opacity-40');
+        btnSearch.disabled = false;
+      }
+    }
+
+    function openSettingsWithFocus() {
+      settingsPanel.classList.remove('hidden');
+      apiKeyInput.focus();
+    }
+
+    /* =========================================================================
+     * 타이머 및 자동 새로고침 제어
+     * ========================================================================= */
+    function startAutoRefresh() {
+      appState.isAutoRefreshing = true;
+      appState.countdownSeconds = 15;
+      autoRefreshStatus.textContent = '15s 갱신 중';
+      btnToggleAutoRefresh.classList.add('bg-blue-50', 'text-blue-600', 'border-blue-300');
+
+      if (appState.countdownTimer) clearInterval(appState.countdownTimer);
+
+      appState.countdownTimer = setInterval(() => {
+        appState.countdownSeconds--;
+        if (appState.countdownSeconds <= 0) {
+          appState.countdownSeconds = 15;
+          if (appState.lastArsId) {
+            refreshIcon.classList.add('fa-spin');
+            executeSearch(appState.lastArsId).finally(() => {
+              setTimeout(() => refreshIcon.classList.remove('fa-spin'), 600);
+            });
+          }
+        }
+        refreshTimerText.textContent = `${appState.countdownSeconds}초 후`;
+      }, 1000);
+    }
+
+    function stopAutoRefresh() {
+      appState.isAutoRefreshing = false;
+      autoRefreshStatus.textContent = '자동 OFF';
+      refreshTimerText.textContent = '새로고침';
+      btnToggleAutoRefresh.classList.remove('bg-blue-50', 'text-blue-600', 'border-blue-300');
+
+      if (appState.countdownTimer) {
+        clearInterval(appState.countdownTimer);
+        appState.countdownTimer = null;
+      }
+    }
+
+    /* =========================================================================
+     * 이벤트 바인딩 및 초기화
+     * ========================================================================= */
+    window.addEventListener('DOMContentLoaded', () => {
+      // 1. 초기 폼 필드 복원
+      apiKeyInput.value = appState.apiKey;
+      useCorsProxyCheck.checked = appState.useProxy;
+      demoModeToggle.checked = appState.demoMode;
+
+      if (appState.lastArsId) {
+        arsIdInput.value = appState.lastArsId;
+      }
+
+      // 2. 검색 폼 제출
+      searchForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const arsId = arsIdInput.value.trim();
+        executeSearch(arsId);
+      });
+
+      // 3. 예시 단축 칩 클릭 이벤트
+      document.querySelectorAll('.quick-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const id = chip.dataset.arsid;
+          arsIdInput.value = id;
+          executeSearch(id);
+        });
+      });
+
+      // 4. 수동 새로고침 버튼
+      btnRefresh.addEventListener('click', () => {
+        if (!appState.lastArsId) return;
+        refreshIcon.classList.add('fa-spin');
+        appState.countdownSeconds = 15;
+        executeSearch(appState.lastArsId).finally(() => {
+          setTimeout(() => refreshIcon.classList.remove('fa-spin'), 600);
+        });
+      });
+
+      // 5. 자동 새로고침 토글
+      btnToggleAutoRefresh.addEventListener('click', () => {
+        if (appState.isAutoRefreshing) {
+          stopAutoRefresh();
+          showToast('자동 갱신이 중지되었습니다.');
+        } else {
+          startAutoRefresh();
+          showToast('15초 간격 실시간 갱신이 시작되었습니다.');
+        }
+      });
+
+      // 6. 노선번호 실시간 필터링
+      routeFilterInput.addEventListener('input', (e) => {
+        appState.filterKeyword = e.target.value;
+        if (appState.filterKeyword) {
+          btnClearFilter.classList.remove('hidden');
+        } else {
+          btnClearFilter.classList.add('hidden');
+        }
+        renderArrivalCards(appState.busData);
+      });
+
+      btnClearFilter.addEventListener('click', () => {
+        routeFilterInput.value = '';
+        appState.filterKeyword = '';
+        btnClearFilter.classList.add('hidden');
+        renderArrivalCards(appState.busData);
+      });
+
+      // 7. 설정 토글 및 저장
+      btnToggleSettings.addEventListener('click', () => {
+        settingsPanel.classList.toggle('hidden');
+      });
+
+      btnCloseSettings.addEventListener('click', () => {
+        settingsPanel.classList.add('hidden');
+      });
+
+      btnToggleKeyVisibility.addEventListener('click', () => {
+        if (apiKeyInput.type === 'password') {
+          apiKeyInput.type = 'text';
+          btnToggleKeyVisibility.textContent = '숨김';
+        } else {
+          apiKeyInput.type = 'password';
+          btnToggleKeyVisibility.textContent = '보기';
+        }
+      });
+
+      btnSaveSettings.addEventListener('click', () => {
+        appState.apiKey = apiKeyInput.value.trim();
+        appState.useProxy = useCorsProxyCheck.checked;
+        appState.demoMode = demoModeToggle.checked;
+
+        localStorage.setItem(STORAGE_KEY_API, appState.apiKey);
+        localStorage.setItem(STORAGE_KEY_USE_PROXY, appState.useProxy);
+        localStorage.setItem(STORAGE_KEY_DEMO_MODE, appState.demoMode);
+
+        settingsPanel.classList.add('hidden');
+        showToast('설정이 저장되었습니다.');
+
+        // 기존에 검색된 번호가 있으면 새로고침
+        if (arsIdInput.value.trim()) {
+          executeSearch(arsIdInput.value.trim());
+        }
+      });
+
+      // 8. 초기 키 여부에 따른 안내
+      if (!appState.apiKey && !appState.demoMode) {
+        showMessage('info', '환영합니다! 시작하기 전에', 
+          `공공데이터포털 인증키가 없으시다면 <b>상단 우측 설정(⚙️) 아이콘</b>을 눌러 <b>'체험용 데모 모드'</b>를 켜시면 바로 실제 동작을 체험해보실 수 있습니다.`);
+      }
+    });
+  </script>
+</body>
+</html>
